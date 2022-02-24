@@ -2,13 +2,17 @@ import Foundation
 
 public struct ByteBuffer {
 
-    var buffer: [UInt8] = []
+    public var buffer: [UInt8] = []
     var index = 0
     public var count: Int {
         return buffer.count
     }
 
     public init(){}
+
+    public init(slice: ArraySlice<UInt8>) {
+        self.buffer = Array(slice)
+    }
 
     public init(buffer: [UInt8]) {
         self.buffer = buffer
@@ -27,11 +31,25 @@ public struct ByteBuffer {
         self.buffer = [UInt8](bytes)
     }
 
+    public mutating func append(_ byte: UInt8) {
+        buffer.append(byte)
+    }
+
     public func byte(at index: Int) -> UInt8 {
         if buffer.isEmpty {
             return 0
         }
         return self.buffer[index]
+    }
+
+    public func bytes(at index: Int, count: Int) -> [UInt8] {
+        if buffer.isEmpty {
+            return []
+        }
+        if index+count > buffer.count {
+            return []
+        }
+        return Array(self.buffer[index...(index+count)])
     }
 
     public func character(at index: Int) -> Character? {
@@ -50,6 +68,53 @@ public struct ByteBuffer {
             return String(bytes: subArray, encoding: String.Encoding.ascii)!
         }
         return nil
+    }
+
+
+    // DDFFetchVariable()
+    /// fetchArray()
+    /// Fetch a variable length array from a record, and allocate it as a new array.
+    func fetchArray(maximumLength: Int,
+                    firstDelimiter: UInt8,
+                    secondDelimiter: UInt8) -> (Int, [UInt8]) {
+        var i = 0
+        var consumedCount = 0
+
+        // Find any delimiter
+        while i < maximumLength - 1 && self.buffer[i] != firstDelimiter && self.buffer[i] != secondDelimiter {
+            i += 1
+        }
+        consumedCount = i
+        if i < maximumLength && (self.buffer[i] == firstDelimiter || self.buffer[i] == secondDelimiter) {
+            consumedCount += 1
+        }
+        return (consumed: consumedCount, array: Array(self.buffer[0..<i])) // Skip the delimiter
+        //return String(bytes: pszRecord[0...i], encoding: .utf8)!
+    }
+
+    public func fetchArray(maximumLength: Int,
+                            firstDelimiter: UInt8,
+                            secondDelimiter: UInt8,
+                            completion: (_ count: Int, _ value: [UInt8]) -> Void)  {
+        let result = fetchArray(maximumLength: maximumLength, firstDelimiter: firstDelimiter, secondDelimiter: secondDelimiter)
+        if result.1.isEmpty {
+            completion(result.0, [])
+        }
+        completion(result.0, result.1)
+    }
+
+    public func fetchString(maximumLength: Int,
+                            firstDelimiter: UInt8,
+                            secondDelimiter: UInt8,
+                            completion: (_ count: Int, _ value: String) -> Void)  {
+        let result = fetchArray(maximumLength: maximumLength, firstDelimiter: firstDelimiter, secondDelimiter: secondDelimiter)
+        if result.1.isEmpty {
+            completion(result.0, "")
+        }
+        if let string = String(bytes: result.1, encoding: .utf8) {
+            completion(result.0, string)
+        }
+        completion(result.0, "")
     }
 
     public func int(at index: Int) -> Int? {
@@ -73,6 +138,19 @@ public struct ByteBuffer {
         let disallowedChars = NSCharacterSet(charactersIn: allowedChars).inverted
         let nss = NSString(string: s)
         return nss.rangeOfCharacter(from: disallowedChars).location == NSNotFound
+    }
+
+
+    /* scanVariable() */
+    /// variableLength
+    /// returns an Int
+    /// Establish the length of a variable length string
+    func variableLength(maximumLength: Int, delimiter: UInt8) -> Int {
+        var i = 0
+        while i < maximumLength - 1 && buffer[i] != delimiter {
+            i += 1
+        }
+        return i
     }
 
     init(byteBuffer: ByteBuffer) {
